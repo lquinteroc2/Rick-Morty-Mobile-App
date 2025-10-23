@@ -1,98 +1,265 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
-
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import {
+  FlatList,
+  View,
+  Text,
+  Image,
+  StyleSheet,
+  ActivityIndicator,
+  TouchableOpacity,
+} from 'react-native';
 import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { ThemedText } from '@/components/themed-text';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Colors } from '@/constants/theme';
+import { useRouter } from 'expo-router';
+
+interface Character {
+  id: number;
+  name: string;
+  image: string;
+  species: string;
+  status: string;
+}
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const colorScheme = useColorScheme();
+  const [characters, setCharacters] = useState<Character[]>([]);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [showScrollTop, setShowScrollTop] = useState(false);
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
+  const flatListRef = useRef<FlatList>(null);
+  const router = useRouter();
+
+  
+  const fetchCharacters = useCallback(async () => {
+    if (loading || !hasMore) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`https://rickandmortyapi.com/api/character?page=${page}`);
+      const data = await res.json();
+
+      if (data.results) {
+        setCharacters((prev) => {
+          const merged = [...prev, ...data.results];
+          const unique = merged.filter(
+            (item, index, self) =>
+              index === self.findIndex((t) => t.id === item.id)
+          );
+          return unique;
+        });
+        setHasMore(data.info.next !== null);
+      }
+    } catch (error) {
+      console.error('Error fetching characters:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, hasMore, loading]);
+
+  useEffect(() => {
+    fetchCharacters();
+  }, [fetchCharacters]);
+
+  const handleLoadMore = () => {
+    if (!loading && hasMore) setPage((prev) => prev + 1);
+  };
+
+  const handleScroll = (event: any) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    setShowScrollTop(offsetY > 300);
+  };
+
+  const scrollToTop = () => {
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  };
+
+  if (characters.length === 0 && loading) {
+    return (
+      <ThemedView style={styles.centered}>
+        <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].tint} />
+        <ThemedText type="subtitle">Loading Characters...</ThemedText>
       </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+    );
+  }
+
+  return (
+    <ThemedView style={styles.container}>
+      <FlatList
+        ref={flatListRef}
+        data={characters}
+        keyExtractor={(item) => item.id.toString()}
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.4}
+        numColumns={2} 
+        columnWrapperStyle={styles.row}
+        contentContainerStyle={styles.listContent}
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <Image
+              source={require('@/assets/images/rickandmorty.png')}
+              style={styles.headerImage}
+            />
+            <ThemedText type="title" style={styles.title}>
+              Rick and Morty Characters
+            </ThemedText>
+          </View>
+        }
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            activeOpacity={0.8}
+            style={styles.card}
+            onPress={() =>
+              router.push({
+                pathname: '/character/[id]',
+                params: { id: String(item.id) },
+              })
+            }
+          >
+            <Image source={{ uri: item.image }} style={styles.avatar} />
+            <View style={styles.textContainer}>
+              <Text style={styles.name}>{item.name}</Text>
+              <Text style={styles.info}>{item.species}</Text>
+              <Text
+                style={[
+                  styles.status,
+                  {
+                    color:
+                      item.status === 'Alive'
+                        ? 'green'
+                        : item.status === 'Dead'
+                        ? 'red'
+                        : 'gray',
+                  },
+                ]}
+              >
+                {item.status}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
+        ListFooterComponent={
+          loading ? (
+            <View style={styles.loader}>
+              <ActivityIndicator size="large" color={Colors[colorScheme ?? 'light'].tint} />
+            </View>
+          ) : null
+        }
+      />
+
+      
+      {showScrollTop && (
+        <TouchableOpacity style={styles.scrollTopButton} onPress={scrollToTop}>
+          <Text style={styles.scrollTopText}>↑</Text>
+        </TouchableOpacity>
+      )}
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
+  container: {
+    flex: 1,
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 40,
+    paddingTop: 80,
+  },
+  header: {
     alignItems: 'center',
-    gap: 8,
+    marginBottom: 20,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  headerImage: {
+    height: 180,
+    width: 180,
+    opacity: 0.7,
+    marginBottom: 10,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
+  title: {
+    textAlign: 'center',
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 15,
+  },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+    row: {
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+
+ 
+card: {
+  flex: 1,
+  flexDirection: 'column',
+  alignItems: 'center',
+  marginBottom: 20,
+  marginHorizontal: 6,
+},
+
+avatar: {
+  width: 140,
+  height: 140,
+  borderRadius: 16,
+  shadowColor: '#000',
+  shadowOpacity: 0.25,
+  shadowOffset: { width: 0, height: 3 },
+  shadowRadius: 6,
+},
+
+textContainer: {
+  marginTop: 8,
+  alignItems: 'center',
+},
+
+name: {
+  fontSize: 15,
+  fontWeight: 'bold',
+  color: '#fff',
+  textAlign: 'center',
+},
+
+info: {
+  fontSize: 13,
+  color: '#ddd',
+  textAlign: 'center',
+},
+
+status: {
+  marginTop: 3,
+  fontWeight: '600',
+  textAlign: 'center',
+},
+  loader: {
+    paddingVertical: 20,
+  },
+
+  
+  scrollTopButton: {
     position: 'absolute',
+    bottom: 30,
+    right: 25,
+    backgroundColor: '#AB1818',
+    borderRadius: 30,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    elevation: 8,
+    shadowColor: '#AB1818',
+    shadowOpacity: 0.4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 6,
+  },
+  scrollTopText: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: 'bold',
   },
 });
